@@ -28,6 +28,17 @@ const allowedPermissions = [
   PermissionFlagsBits.ReadMessageHistory,
   PermissionFlagsBits.UseExternalEmojis,
 ];
+const modAllowedPermissions = [
+  PermissionFlagsBits.ViewChannel,
+  PermissionFlagsBits.SendMessages,
+  PermissionFlagsBits.AttachFiles,
+  PermissionFlagsBits.EmbedLinks,
+  PermissionFlagsBits.AddReactions,
+  PermissionFlagsBits.ReadMessageHistory,
+  PermissionFlagsBits.UseExternalEmojis,
+  PermissionFlagsBits.ManageChannels,
+  PermissionFlagsBits.ManageMessages,
+];
 
 export async function handleTicketCreation(
   interaction,
@@ -61,7 +72,7 @@ export async function handleTicketCreation(
       },
       ...modRoleIds.map((roleId) => ({
         id: roleId,
-        allow: allowedPermissions,
+        allow: modAllowedPermissions,
       })),
     ],
   });

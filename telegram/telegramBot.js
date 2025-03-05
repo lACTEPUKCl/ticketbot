@@ -119,7 +119,7 @@ tgBot.on("message", async (msg) => {
       const modRoleIds = process.env.MOD_ROLE_IDS.split(",").map((id) =>
         id.trim()
       );
-      const allowedPermissions = [
+      const modAllowedPermissions = [
         PermissionFlagsBits.ViewChannel,
         PermissionFlagsBits.SendMessages,
         PermissionFlagsBits.AttachFiles,
@@ -127,7 +127,10 @@ tgBot.on("message", async (msg) => {
         PermissionFlagsBits.AddReactions,
         PermissionFlagsBits.ReadMessageHistory,
         PermissionFlagsBits.UseExternalEmojis,
+        PermissionFlagsBits.ManageChannels,
+        PermissionFlagsBits.ManageMessages,
       ];
+
       try {
         const guild = discordClient.guilds.cache.get(GUILD_ID);
         if (!guild) {
@@ -149,7 +152,7 @@ tgBot.on("message", async (msg) => {
             },
             ...modRoleIds.map((roleId) => ({
               id: roleId,
-              allow: allowedPermissions,
+              allow: modAllowedPermissions,
             })),
           ],
         });
