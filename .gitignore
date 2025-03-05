@@ -1,0 +1,20 @@
+# Project Files
+*.sqlite
+*.tmp
+transactionId.json
+config-test*.json
+statstemp.png
+leaderboardtemp.png
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+
+# IDEs
+.idea/
+.vs/
+
+.env
+config.js
