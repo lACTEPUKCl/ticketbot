@@ -73,9 +73,7 @@ client.on("messageCreate", async (message) => {
   const username = message.author.tag;
 
   const ticket = await Ticket.findOne({ discordChannelId: message.channel.id });
-  if (!ticket) {
-    return;
-  }
+  if (!ticket) return;
 
   const tgChatId = ticket.telegramChatId;
   const attachments = [];
@@ -135,7 +133,7 @@ client.on("messageCreate", async (message) => {
   }
 
   try {
-    const updatedTicket = await Ticket.findOneAndUpdate(
+    await Ticket.findOneAndUpdate(
       { discordChannelId: message.channel.id },
       {
         $push: {
@@ -185,7 +183,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const server = interaction.fields.getTextInputValue("server");
         const details = interaction.fields.getTextInputValue("details");
 
-        const formData = { nickname, steam, offender, server, details };
+        const formData = {
+          "Ваш игровой никнейм": nickname,
+          "Ваш SteamID64 или ссылка на профиль Steam": steam,
+          "Никнейм нарушителя": offender,
+          "На каком сервере произошло нарушение": server,
+          "Подробно опишите, что произошло": details,
+        };
         await handleTicketCreation(
           interaction,
           "Жалоба",
@@ -200,7 +204,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const steam = interaction.fields.getTextInputValue("steam");
         const reason = interaction.fields.getTextInputValue("reason");
 
-        const formData = { nickname, steam, reason };
+        const formData = {
+          "Ваш игровой никнейм": nickname,
+          "Ваш SteamID64 или ссылка на профиль Steam": steam,
+          Объяснение: reason,
+        };
         await handleTicketCreation(
           interaction,
           "Оспорить бан",
@@ -214,7 +222,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const nickname = interaction.fields.getTextInputValue("nickname");
         const steam = interaction.fields.getTextInputValue("steam");
 
-        const formData = { nickname, steam };
+        const formData = {
+          "Ваш игровой никнейм": nickname,
+          "Ваш SteamID64 или ссылка на профиль Steam": steam,
+        };
         await handleTicketCreation(
           interaction,
           "Вернуть пилота",
@@ -222,6 +233,80 @@ client.on(Events.InteractionCreate, async (interaction) => {
           categoryId,
           userTicketChannels
         );
+        break;
+      }
+      case "modal_close_with_reason": {
+        const reason =
+          interaction.fields.getTextInputValue("reason_input") || "Не указана";
+        const ticket = await Ticket.findOneAndUpdate(
+          { discordChannelId: interaction.channel.id },
+          { closedAt: new Date() },
+          { new: true }
+        );
+        if (!ticket) {
+          await interaction.reply({
+            content: "Тикет не найден",
+            ephemeral: true,
+          });
+          return;
+        }
+        const createdAt = ticket.createdAt
+          ? ticket.createdAt.toLocaleString("ru-RU", {
+              timeZone: "Europe/Moscow",
+            })
+          : "Неизвестно";
+        const closedAt = new Date().toLocaleString("ru-RU", {
+          timeZone: "Europe/Moscow",
+        });
+        const embed = new EmbedBuilder()
+          .setAuthor({
+            name: "Русский Народный Сервер",
+            iconURL:
+              "https://media.discordapp.net/attachments/1179711462197968896/1271584403826540705/0000.png",
+          })
+          .setTitle("Тикет закрыт!")
+          .setColor("Green")
+          .addFields(
+            {
+              name: "Номер тикета",
+              value: ticket._id ? ticket._id.toString() : "Неизвестно",
+              inline: true,
+            },
+            {
+              name: "Открыл:",
+              value: `<@${ticket.discordUserId ?? "Неизвестно"}>`,
+              inline: true,
+            },
+            {
+              name: "Закрыл:",
+              value: `<@${interaction.user.id}>`,
+              inline: true,
+            },
+            { name: "Дата создания:", value: createdAt, inline: true },
+            { name: "Причина", value: reason, inline: true }
+          )
+          .setFooter({ text: `Закрыто: ${closedAt}` });
+        try {
+          await interaction.user.send({ embeds: [embed] });
+          const closedChannel = interaction.guild.channels.cache.get(
+            process.env.CLOSED_TICKETS_CHANNEL_ID
+          );
+          if (closedChannel) {
+            await closedChannel.send({ embeds: [embed] });
+          } else {
+            console.error("Канал закрытых тикетов не найден");
+          }
+        } catch (err) {
+          console.error("Ошибка отправки уведомлений:", err);
+        }
+        await interaction.reply({ content: "Тикет закрыт.", ephemeral: true });
+        const ticketData = await Ticket.findOne({
+          discordChannelId: interaction.channel.id,
+        });
+        if (ticketData && ticketData.telegramChatId) {
+          forwardToTelegram(ticketData.telegramChatId, "Ваш тикет закрыт.");
+        }
+        await interaction.channel?.delete().catch(console.error);
         break;
       }
     }
@@ -233,7 +318,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const modal = new ModalBuilder()
           .setCustomId("report_ticket_modal")
           .setTitle("Жалоба");
-
         const nicknameInput = new TextInputBuilder()
           .setCustomId("nickname")
           .setLabel("Ваш игровой никнейм")
@@ -259,13 +343,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .setLabel("Подробно опишите, что произошло")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
-
         const row1 = new ActionRowBuilder().addComponents(nicknameInput);
         const row2 = new ActionRowBuilder().addComponents(steamInput);
         const row3 = new ActionRowBuilder().addComponents(offenderInput);
         const row4 = new ActionRowBuilder().addComponents(serverInput);
         const row5 = new ActionRowBuilder().addComponents(detailsInput);
-
         modal.addComponents(row1, row2, row3, row4, row5);
         await interaction.showModal(modal);
         break;
@@ -274,7 +356,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const modal = new ModalBuilder()
           .setCustomId("unban_ticket_modal")
           .setTitle("Оспорить бан");
-
         const nicknameInput = new TextInputBuilder()
           .setCustomId("nickname")
           .setLabel("Ваш игровой никнейм")
@@ -290,11 +371,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .setLabel("Почему вы считаете, что бан нужно изменить?")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
-
         const row1 = new ActionRowBuilder().addComponents(nicknameInput);
         const row2 = new ActionRowBuilder().addComponents(steamInput);
         const row3 = new ActionRowBuilder().addComponents(reasonInput);
-
         modal.addComponents(row1, row2, row3);
         await interaction.showModal(modal);
         break;
@@ -303,7 +382,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const modal = new ModalBuilder()
           .setCustomId("return_pilot_ticket_modal")
           .setTitle("Вернуть пилота");
-
         const nicknameInput = new TextInputBuilder()
           .setCustomId("nickname")
           .setLabel("Ваш игровой никнейм")
@@ -314,10 +392,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
           .setLabel("SteamID64 или ссылка на профиль Steam")
           .setStyle(TextInputStyle.Short)
           .setRequired(true);
-
         const row1 = new ActionRowBuilder().addComponents(nicknameInput);
         const row2 = new ActionRowBuilder().addComponents(steamInput);
-
         modal.addComponents(row1, row2);
         await interaction.showModal(modal);
         break;
@@ -341,93 +417,118 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
           return;
         }
+        const confirmRow = new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId("confirm_close_ticket")
+            .setLabel("Да, закрыть")
+            .setStyle(ButtonStyle.Danger)
+        );
+        await interaction.reply({
+          content: "Вы уверены, что хотите закрыть тикет?",
+          components: [confirmRow],
+          ephemeral: true,
+        });
+        break;
+      }
+      case "confirm_close_ticket": {
         const ticket = await Ticket.findOneAndUpdate(
           { discordChannelId: interaction.channel.id },
           { closedAt: new Date() },
           { new: true }
         );
-
-        await interaction.reply({
-          content: "Тикет закрыт. История уже сохранена в базе данных.",
-          ephemeral: true,
-        });
-
-        if (ticket) {
-          if (ticket.telegramChatId) {
-            forwardToTelegram(ticket.telegramChatId, "Ваш тикет закрыт.");
-          } else {
-            try {
-              const embed = new EmbedBuilder()
-                .setAuthor({
-                  name: "Русский Народный Сервер",
-                  iconURL:
-                    "https://media.discordapp.net/attachments/1179711462197968896/1271584403826540705/0000.png",
-                })
-                .setTitle("Тикет закрыт!")
-                .setColor("Green")
-                .addFields(
-                  {
-                    name: "Номер тикета",
-                    value: ticket._id ? ticket._id.toString() : "Неизвестно",
-                    inline: true,
-                  },
-                  {
-                    name: "Открыл:",
-                    value: `<@${ticket.discordUserId ?? "Неизвестно"}>`,
-                    inline: true,
-                  },
-                  {
-                    name: "Закрыл:",
-                    value: `<@${interaction.user.id}>`,
-                    inline: true,
-                  },
-                  {
-                    name: "Дата создания:",
-                    value: ticket.createdAt
-                      ? ticket.createdAt.toLocaleString()
-                      : "Неизвестно",
-                    inline: true,
-                  },
-                  {
-                    name: "Причина",
-                    value: "Не указана",
-                    inline: true,
-                  }
-                )
-                .setFooter({
-                  text: `Закрыто: ${new Date().toLocaleString()}`,
-                });
-
-              const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder()
-                  .setLabel("Посмотреть историю")
-                  .setStyle(ButtonStyle.Link)
-                  .setURL("https://example.com/transcript")
-              );
-
-              await interaction.user.send({
-                embeds: [embed],
-                components: [row],
-              });
-
-              const closedChannelId = process.env.CLOSED_TICKETS_CHANNEL_ID;
-              if (closedChannelId) {
-                const closedChannel =
-                  interaction.guild.channels.cache.get(closedChannelId);
-                if (closedChannel) {
-                  await closedChannel.send({ embeds: [embed] });
-                } else {
-                  console.error("Канал закрытых тикетов не найден");
-                }
-              }
-            } catch (err) {
-              console.error("Ошибка отправки уведомлений:", err);
-            }
-          }
+        if (!ticket) {
+          await interaction.reply({
+            content: "Тикет не найден",
+            ephemeral: true,
+          });
+          return;
         }
-
+        const createdAt = ticket.createdAt
+          ? ticket.createdAt.toLocaleString("ru-RU", {
+              timeZone: "Europe/Moscow",
+            })
+          : "Неизвестно";
+        const closedAt = new Date().toLocaleString("ru-RU", {
+          timeZone: "Europe/Moscow",
+        });
+        const embed = new EmbedBuilder()
+          .setAuthor({
+            name: "Русский Народный Сервер",
+            iconURL:
+              "https://media.discordapp.net/attachments/1179711462197968896/1271584403826540705/0000.png",
+          })
+          .setTitle("Тикет закрыт!")
+          .setColor("Green")
+          .addFields(
+            {
+              name: "Номер тикета",
+              value: ticket._id ? ticket._id.toString() : "Неизвестно",
+              inline: true,
+            },
+            {
+              name: "Открыл:",
+              value: `<@${ticket.discordUserId ?? "Неизвестно"}>`,
+              inline: true,
+            },
+            {
+              name: "Закрыл:",
+              value: `<@${interaction.user.id}>`,
+              inline: true,
+            },
+            { name: "Дата создания:", value: createdAt, inline: true },
+            { name: "Причина", value: "Не указана", inline: true }
+          )
+          .setFooter({ text: `Закрыто: ${closedAt}` });
+        try {
+          if (ticket.discordUserId) {
+            const ticketCreator = await client.users.fetch(
+              ticket.discordUserId
+            );
+            await ticketCreator.send({ embeds: [embed] });
+          }
+          const closedChannel = interaction.guild.channels.cache.get(
+            process.env.CLOSED_TICKETS_CHANNEL_ID
+          );
+          if (closedChannel) {
+            await closedChannel.send({ embeds: [embed] });
+          } else {
+            console.error("Канал закрытых тикетов не найден");
+          }
+        } catch (err) {
+          console.error("Ошибка отправки уведомлений:", err);
+        }
+        await interaction.reply({ content: "Тикет закрыт.", ephemeral: true });
+        const ticketData = await Ticket.findOne({
+          discordChannelId: interaction.channel.id,
+        });
+        if (ticketData && ticketData.telegramChatId) {
+          forwardToTelegram(ticketData.telegramChatId, "Ваш тикет закрыт.");
+        }
         await interaction.channel?.delete().catch(console.error);
+        break;
+      }
 
+      case "close_ticket_with_reason": {
+        const memberRoles = interaction.member.roles.cache;
+        const isMod = memberRoles.some((role) => modRoleIds.includes(role.id));
+        if (!isMod) {
+          await interaction.reply({
+            content: "Закрыть тикет может только модератор",
+            ephemeral: true,
+          });
+          return;
+        }
+        const modal = new ModalBuilder()
+          .setCustomId("modal_close_with_reason")
+          .setTitle("Закрытие тикета с причиной");
+        const reasonInput = new TextInputBuilder()
+          .setCustomId("reason_input")
+          .setLabel("Введите причину закрытия тикета")
+          .setStyle(TextInputStyle.Paragraph)
+          .setRequired(true);
+        const row = new ActionRowBuilder().addComponents(reasonInput);
+        modal.addComponents(row);
+        await interaction.showModal(modal);
         break;
       }
     }

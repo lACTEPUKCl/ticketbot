@@ -1,9 +1,7 @@
-// telegramBot.js
 import TelegramBot from "node-telegram-bot-api";
 import { config } from "dotenv";
 config();
 import { ticketMap } from "./ticketMap.js";
-import { client as discordClient } from "../discord/discordBot.js";
 import Ticket, { Counter } from "../utils/ticketModel.js";
 import fs from "fs";
 import {
@@ -23,9 +21,11 @@ import {
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const GUILD_ID = process.env.GUILD_ID;
 const TELEGRAM_TICKET_CATEGORY_ID = process.env.TELEGRAM_TICKET_CATEGORY_ID;
+
 const tgBot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
 const attachmentCache = new Map();
 const conversationState = new Map();
+
 const ticketQuestions = {
   report_ticket: [
     { field: "nickname", question: "Введите ваш игровой никнейм:" },
@@ -116,22 +116,11 @@ tgBot.on("message", async (msg) => {
       };
       const discordTicketType =
         ticketTypeMap[state.ticketType] || "Задать вопрос";
-      const modRoleIds = process.env.MOD_ROLE_IDS.split(",").map((id) =>
-        id.trim()
-      );
-      const modAllowedPermissions = [
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.SendMessages,
-        PermissionFlagsBits.AttachFiles,
-        PermissionFlagsBits.EmbedLinks,
-        PermissionFlagsBits.AddReactions,
-        PermissionFlagsBits.ReadMessageHistory,
-        PermissionFlagsBits.UseExternalEmojis,
-        PermissionFlagsBits.ManageChannels,
-        PermissionFlagsBits.ManageMessages,
-      ];
 
       try {
+        const { client: discordClient } = await import(
+          "../discord/discordBot.js"
+        );
         const guild = discordClient.guilds.cache.get(GUILD_ID);
         if (!guild) {
           console.error(`Гильдия с ID ${GUILD_ID} не найдена!`);
@@ -141,6 +130,21 @@ tgBot.on("message", async (msg) => {
         }
 
         const ticketId = await getNextTicketId();
+        const modRoleIds = process.env.MOD_ROLE_IDS.split(",").map((id) =>
+          id.trim()
+        );
+        const modAllowedPermissions = [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.AttachFiles,
+          PermissionFlagsBits.EmbedLinks,
+          PermissionFlagsBits.AddReactions,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.UseExternalEmojis,
+          PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageMessages,
+        ];
+
         const channel = await guild.channels.create({
           name: `обращение-${ticketId}-TG`,
           type: ChannelType.GuildText,
@@ -187,7 +191,6 @@ tgBot.on("message", async (msg) => {
           chatIdStr,
           "Ваш тикет создан в Discord. Ожидайте ответа от поддержки."
         );
-
         ticketMap.set(chatIdStr, channel.id);
 
         const newTicket = new Ticket({
@@ -208,6 +211,7 @@ tgBot.on("message", async (msg) => {
     }
   } else if (ticketMap.has(chatIdStr)) {
     const channelId = ticketMap.get(chatIdStr);
+    const { client: discordClient } = await import("../discord/discordBot.js");
     const guild = discordClient.guilds.cache.get(GUILD_ID);
     let telegramId;
     const username = msg.from.username
@@ -217,11 +221,8 @@ tgBot.on("message", async (msg) => {
     if (guild) {
       const channel = guild.channels.cache.get(channelId);
       if (channel) {
-        const telegramUser = msg.from.username || msg.from.first_name;
         const textContent = msg.text || "";
         const attachments = [];
-
-        // Обработка видео
         if (msg.video) {
           const videoFileId = msg.video.file_id;
           if (attachmentCache.has(videoFileId)) {
@@ -232,7 +233,9 @@ tgBot.on("message", async (msg) => {
                 videoFileId,
                 "./downloads"
               );
-              const title = `Видео от ${telegramUser}`;
+              const title = `Видео от ${
+                msg.from.username || msg.from.first_name
+              }`;
               const description = "Загружено через Telegram-бот";
               const youtubeUrl = await uploadVideoToVKCommunity(
                 videoPath,
@@ -293,31 +296,14 @@ tgBot.on("message", async (msg) => {
 
         try {
           if (msg.from.is_bot) return;
-
           let finalMessage = textContent;
-
           if (attachments.length > 0) {
             finalMessage += "\n" + attachments.join("\n");
           }
-
           telegramId = msg.from.id;
-
           await channel.send(`[Bot] Discord (${username}): ${finalMessage}`);
         } catch (err) {
-          if (err.code === 40005) {
-            console.error(
-              "Файл слишком большой для Discord, отправляем пути как текст."
-            );
-            let fallbackMessage = textContent;
-            attachments.forEach((p) => {
-              fallbackMessage += `\n${p}`;
-            });
-            await channel.send(
-              `[Bot] Discord (${msg.username}): ${fallbackMessage}`
-            );
-          } else {
-            console.error("Ошибка отправки сообщения в Discord:", err);
-          }
+          console.error("Ошибка отправки сообщения в Discord:", err);
         }
 
         await Ticket.findOneAndUpdate(

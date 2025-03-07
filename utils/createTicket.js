@@ -90,7 +90,11 @@ export async function handleTicketCreation(
     new ButtonBuilder()
       .setCustomId("close_ticket")
       .setLabel("Закрыть тикет")
-      .setStyle(ButtonStyle.Danger)
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId("close_ticket_with_reason")
+      .setLabel("Закрыть с причиной")
+      .setStyle(ButtonStyle.Secondary)
   );
 
   await channel.send({
