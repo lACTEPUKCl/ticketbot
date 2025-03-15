@@ -19,6 +19,24 @@ async function getNextTicketId() {
 }
 
 const modRoleIds = process.env.MOD_ROLE_IDS.split(",").map((id) => id.trim());
+
+export async function notifyAdmins(channel, ticketType) {
+  const roleMentions = modRoleIds.map((roleId) => `<@&${roleId}>`).join(" ");
+  const messageText = `${roleMentions} У вас новый тикет "${ticketType}"!`;
+
+  if (ticketType === "Оспорить бан") return;
+  try {
+    const notifyMessage = await channel.send({
+      content: messageText,
+      allowedMentions: { parse: ["roles"] },
+    });
+
+    notifyMessage.delete().catch(console.error);
+  } catch (error) {
+    console.error("Ошибка уведомления модераторов:", error);
+  }
+}
+
 const allowedPermissions = [
   PermissionFlagsBits.ViewChannel,
   PermissionFlagsBits.SendMessages,
@@ -116,6 +134,9 @@ export async function handleTicketCreation(
     case "Задать вопрос":
       autoReply = `Здравствуйте, <@${user.id}>! Опишите свой вопрос, и мы постараемся помочь вам в ближайшее время.`;
       break;
+    case "Набор в администраторы":
+      autoReply = `Здравствуйте, <@${user.id}>! Пока наш админ еще не успел взглянуть на ваш запрос, можем попросить вас заполнить быструю анкету https://docs.google.com/forms/d/e/1FAIpQLSdG3su88ADyX0FZKg_yJ0BakZXz-kcaiNe32cb7urUopWulIw/viewform`;
+      break;
     default:
       autoReply = `Здравствуйте, <@${user.id}>! Спасибо за обращение.`;
       break;
@@ -170,6 +191,10 @@ Z-8G   | AdminCreateVehicle /Game/Vehicles/Z8G/BP_Z8G.BP_Z8G_C
     await interaction.editReply({
       content: `Тикет #${ticketId} создан: ${channel}`,
     });
+
+    notifyAdmins(channel, ticketType);
+
+    return channel;
   } catch (error) {
     console.error("Ошибка сохранения тикета в базу:", error);
     await interaction.editReply({

@@ -16,6 +16,8 @@ import { handleTicketCreation } from "../utils/createTicket.js";
 import { forwardToTelegram } from "../telegram/telegramBot.js";
 import Ticket from "../utils/ticketModel.js";
 import { tgBot } from "../telegram/telegramBot.js";
+import { createBattleMetricsClient } from "../utils/battleMetricsClient.js";
+import getSteamId64 from "../utils/getSteamID64.js";
 import {
   uploadVideoToVKCommunity,
   uploadPhotoToVK,
@@ -41,6 +43,31 @@ async function downloadFileFromURL(fileUrl, destPath) {
   });
 }
 
+async function loadAdminsMapping(filePath) {
+  const content = fs.readFileSync(path.resolve(filePath), "utf8");
+  const lines = content.split("\n");
+  const mapping = {};
+  const regex =
+    /^Admin=(\d{17}):Admin\s+\/\/\s+DiscordID\s+(\d+)\s+do\s+\d{2}\.\d{2}\.\d{4}$/;
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const match = trimmed.match(regex);
+    if (match) {
+      const steamId = match[1];
+      const discordId = match[2];
+      mapping[steamId] = discordId;
+    }
+  }
+  return mapping;
+}
+
+const battleMetricsClient = new createBattleMetricsClient({
+  access_token: process.env.BATTLEMETRICS_API_TOKEN,
+  org_id: process.env.BATTLEMETRICS_ORG_ID,
+});
+
+const adminsMapping = await loadAdminsMapping("./admins.cfg");
+const steamApi = process.env.STEAM_API_KEY;
 const attachmentCache = new Map();
 
 const client = new Client({
@@ -203,21 +230,55 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const nickname = interaction.fields.getTextInputValue("nickname");
         const steam = interaction.fields.getTextInputValue("steam");
         const reason = interaction.fields.getTextInputValue("reason");
+        const steamID64 = await getSteamId64(steamApi, steam);
+
+        if (!/^\d{17}$/.test(steamID64)) {
+          await interaction.reply({
+            content:
+              "Неверный SteamID. Пожалуйста, введите корректный 17-значный SteamID или ссылку на профиль.",
+            ephemeral: true,
+          });
+          return;
+        }
+
+        let adminMessage;
+        try {
+          const bans = await battleMetricsClient.playerBans(steamID64);
+          if (Array.isArray(bans) && bans.length > 0) {
+            const banRecord = bans[0];
+            const adminBMId = banRecord.relationships.user.data.id;
+            const adminSteamId = await battleMetricsClient.userSteamId(
+              adminBMId
+            );
+            const adminDiscordId = adminsMapping[adminSteamId];
+            if (adminDiscordId) {
+              adminMessage = `Администратор <@${adminDiscordId}> рассмотрит ваше обращение!`;
+            }
+          }
+        } catch (error) {
+          console.error("Ошибка получения информации о бане:", error);
+        }
 
         const formData = {
           "Ваш игровой никнейм": nickname,
           "Ваш SteamID64 или ссылка на профиль Steam": steam,
           Объяснение: reason,
         };
-        await handleTicketCreation(
+
+        const ticketChannel = await handleTicketCreation(
           interaction,
           "Оспорить бан",
           formData,
           categoryId,
           userTicketChannels
         );
+
+        if (ticketChannel && adminMessage) {
+          ticketChannel.send(adminMessage);
+        }
         break;
       }
+
       case "return_pilot_ticket_modal": {
         const nickname = interaction.fields.getTextInputValue("nickname");
         const steam = interaction.fields.getTextInputValue("steam");
@@ -229,6 +290,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await handleTicketCreation(
           interaction,
           "Вернуть пилота",
+          formData,
+          categoryId,
+          userTicketChannels
+        );
+        break;
+      }
+      case "admin_modal": {
+        const nickname = interaction.fields.getTextInputValue("nickname");
+        const steam = interaction.fields.getTextInputValue("steam");
+        const age = interaction.fields.getTextInputValue("age");
+        const experience = interaction.fields.getTextInputValue("experience");
+        const reason = interaction.fields.getTextInputValue("reason");
+
+        const formData = {
+          "Ваш игровой никнейм": nickname,
+          "Ваш SteamID64 или ссылка на профиль Steam": steam,
+          Возраст: age,
+          "Опыт администрирования": experience,
+          "Почему наш сервер?": reason,
+        };
+
+        await handleTicketCreation(
+          interaction,
+          "Заявка на администратора",
           formData,
           categoryId,
           userTicketChannels
@@ -317,84 +402,97 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case "report_ticket": {
         const modal = new ModalBuilder()
           .setCustomId("report_ticket_modal")
-          .setTitle("Жалоба");
-        const nicknameInput = new TextInputBuilder()
-          .setCustomId("nickname")
-          .setLabel("Ваш игровой никнейм")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const steamInput = new TextInputBuilder()
-          .setCustomId("steam")
-          .setLabel("SteamID64 или ссылка на профиль Steam")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const offenderInput = new TextInputBuilder()
-          .setCustomId("offender")
-          .setLabel("Никнейм нарушителя")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const serverInput = new TextInputBuilder()
-          .setCustomId("server")
-          .setLabel("На каком сервере произошло нарушение?")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const detailsInput = new TextInputBuilder()
-          .setCustomId("details")
-          .setLabel("Подробно опишите, что произошло")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true);
-        const row1 = new ActionRowBuilder().addComponents(nicknameInput);
-        const row2 = new ActionRowBuilder().addComponents(steamInput);
-        const row3 = new ActionRowBuilder().addComponents(offenderInput);
-        const row4 = new ActionRowBuilder().addComponents(serverInput);
-        const row5 = new ActionRowBuilder().addComponents(detailsInput);
-        modal.addComponents(row1, row2, row3, row4, row5);
+          .setTitle("Жалоба")
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("nickname")
+                .setLabel("Ваш игровой никнейм")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("steam")
+                .setLabel("SteamID64 или ссылка на профиль Steam")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("offender")
+                .setLabel("Никнейм нарушителя")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("server")
+                .setLabel("На каком сервере произошло нарушение?")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("details")
+                .setLabel("Подробно опишите, что произошло")
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+            )
+          );
         await interaction.showModal(modal);
         break;
       }
       case "unban_ticket": {
         const modal = new ModalBuilder()
           .setCustomId("unban_ticket_modal")
-          .setTitle("Оспорить бан");
-        const nicknameInput = new TextInputBuilder()
-          .setCustomId("nickname")
-          .setLabel("Ваш игровой никнейм")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const steamInput = new TextInputBuilder()
-          .setCustomId("steam")
-          .setLabel("SteamID64 или ссылка на профиль Steam")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const reasonInput = new TextInputBuilder()
-          .setCustomId("reason")
-          .setLabel("Почему вы считаете, что бан нужно изменить?")
-          .setStyle(TextInputStyle.Paragraph)
-          .setRequired(true);
-        const row1 = new ActionRowBuilder().addComponents(nicknameInput);
-        const row2 = new ActionRowBuilder().addComponents(steamInput);
-        const row3 = new ActionRowBuilder().addComponents(reasonInput);
-        modal.addComponents(row1, row2, row3);
+          .setTitle("Оспорить бан")
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("nickname")
+                .setLabel("Ваш игровой никнейм")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("steam")
+                .setLabel("SteamID64 или ссылка на профиль Steam")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("reason")
+                .setLabel("Почему вы считаете, что бан нужно изменить?")
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+            )
+          );
         await interaction.showModal(modal);
         break;
       }
       case "return_pilot_ticket": {
         const modal = new ModalBuilder()
           .setCustomId("return_pilot_ticket_modal")
-          .setTitle("Вернуть пилота");
-        const nicknameInput = new TextInputBuilder()
-          .setCustomId("nickname")
-          .setLabel("Ваш игровой никнейм")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const steamInput = new TextInputBuilder()
-          .setCustomId("steam")
-          .setLabel("SteamID64 или ссылка на профиль Steam")
-          .setStyle(TextInputStyle.Short)
-          .setRequired(true);
-        const row1 = new ActionRowBuilder().addComponents(nicknameInput);
-        const row2 = new ActionRowBuilder().addComponents(steamInput);
-        modal.addComponents(row1, row2);
+          .setTitle("Вернуть пилота")
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("nickname")
+                .setLabel("Ваш игровой никнейм")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("steam")
+                .setLabel("SteamID64 или ссылка на профиль Steam")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            )
+          );
         await interaction.showModal(modal);
         break;
       }
@@ -405,6 +503,50 @@ client.on(Events.InteractionCreate, async (interaction) => {
           {},
           interaction.channel?.parentId
         );
+        break;
+      }
+      case "admin_panel": {
+        const modal = new ModalBuilder()
+          .setCustomId("admin_modal")
+          .setTitle("Заявка на администратора")
+          .addComponents(
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("nickname")
+                .setLabel("Ваш игровой никнейм")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("steam")
+                .setLabel("SteamID64 или ссылка на профиль Steam")
+                .setStyle(TextInputStyle.Short)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("age")
+                .setLabel("Возраст")
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("experience")
+                .setLabel("Опыт администрирования")
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+            ),
+            new ActionRowBuilder().addComponents(
+              new TextInputBuilder()
+                .setCustomId("reason")
+                .setLabel("Почему наш сервер?")
+                .setStyle(TextInputStyle.Paragraph)
+                .setRequired(true)
+            )
+          );
+        await interaction.showModal(modal);
         break;
       }
       case "close_ticket": {

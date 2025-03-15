@@ -1,4 +1,3 @@
-// ticketPanel.js
 import {
   SlashCommandBuilder,
   EmbedBuilder,

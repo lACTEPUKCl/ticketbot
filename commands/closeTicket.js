@@ -77,7 +77,17 @@ const execute = async (interaction) => {
     .setFooter({ text: `Закрыто: ${closedAt}` });
 
   try {
-    await interaction.user.send({ embeds: [embed] });
+    if (ticket.discordUserId) {
+      const ticketCreator = await interaction.client.users.fetch(
+        ticket.discordUserId
+      );
+      await ticketCreator.send({ embeds: [embed] });
+    } else {
+      console.warn(
+        "Не удалось отправить сообщение пользователю: ID не найден."
+      );
+    }
+
     const closedChannelId = process.env.CLOSED_TICKETS_CHANNEL_ID;
     if (closedChannelId) {
       const closedChannel =
