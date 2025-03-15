@@ -52,7 +52,7 @@ const execute = async (interaction) => {
       .setCustomId("admin_ticket")
       .setEmoji("1012116258675761253")
       .setLabel("Заявка в администраторы")
-      .setStyle(ButtonStyle.Danger)
+      .setStyle(ButtonStyle.Success)
   );
 
   await channel.send({
