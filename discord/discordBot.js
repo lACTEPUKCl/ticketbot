@@ -528,7 +528,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
               new TextInputBuilder()
                 .setCustomId("age")
                 .setLabel("Возраст")
-                .setStyle(TextInputStyle.Paragraph)
+                .setStyle(TextInputStyle.Short)
                 .setRequired(true)
             ),
             new ActionRowBuilder().addComponents(
