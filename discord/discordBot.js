@@ -505,7 +505,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
         break;
       }
-      case "admin_panel": {
+      case "admin_ticket": {
         const modal = new ModalBuilder()
           .setCustomId("admin_modal")
           .setTitle("Заявка на администратора")
