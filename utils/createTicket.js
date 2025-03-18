@@ -157,6 +157,39 @@ export async function handleTicketCreation(
 
   await channel.send({ content: autoReply });
 
+  if (ticketType === "Вернуть пилота") {
+    const extraMessage = `
+**Важно:** Сброс скорости осуществлять с помощью манёвра j-hook (торможение, поднятием носа вверх не засчитывается)
+
+1. Зайти на тренировочную карту (Training -> Jensen's Range)
+2. Поменять карту, введя в консоль (буква ё): AdminChangeLayer yehorivka_aas_v1
+2.1. (опционально) Ускорить стартовую фазу, введя в консоль: AdminSlomo 100
+2.2. (опционально) Вернуть скорость на обычную, введя в консоль: AdminSlomo 1
+3. Заспавнить желаемый вертолёт (список команд для ввода в консоль внизу)
+4. Поставить метку на карте, куда планируете приземлиться
+5. Приземлиться на указанное место
+6. Поставить новую метку в другом месте над лесом/зданиями
+7. Зависнуть на высоте менее 30 метров, имитировать выгрузку ресурсов
+8. Посадить вертолёт на хелипад на мейне
+
+Видео можно залить на YouTube/Яндекс Диск/Google Диск или другой общедоступный ресурс и отправить сюда ссылку  
+Пример выполнения: https://youtu.be/pk7sWzJMMQs
+
+**Команды для спавна вертолёта:**
+\`\`\`
+верт   | команда
+------------------------------------------------------------------
+UH-60M | AdminCreateVehicle /Game/Vehicles/UH60M/BP_UH60.BP_UH60_C
+UH-1Y  | AdminCreateVehicle /Game/Vehicles/UH1Y/BP_UH1Y.BP_UH1Y_C
+SA330  | AdminCreateVehicle /Game/Vehicles/SA330/BP_SA330.BP_SA330_C
+MRH-90 | AdminCreateVehicle /Game/Vehicles/MRH90/BP_MRH90_Mag58.BP_MRH90_Mag58_C
+CH-146 | AdminCreateVehicle /Game/Vehicles/CH146/BP_CH146.BP_CH146_C
+Z-8G   | AdminCreateVehicle /Game/Vehicles/Z8G/BP_Z8G.BP_Z8G_C
+\`\`\`
+`;
+    await channel.send({ content: extraMessage });
+  };
+  
   try {
     const newTicket = new Ticket({
       _id: ticketId,
