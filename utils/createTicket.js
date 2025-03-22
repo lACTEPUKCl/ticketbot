@@ -174,7 +174,7 @@ export async function handleTicketCreation(
 
 Видео можно залить на YouTube/Яндекс Диск/Google Диск или другой общедоступный ресурс и отправить сюда ссылку  
 Пример выполнения: https://youtu.be/pk7sWzJMMQs
-
+Гайд на вертолет: https://youtu.be/sAmny6m54Fo
 **Команды для спавна вертолёта:**
 \`\`\`
 верт   | команда
@@ -188,8 +188,8 @@ Z-8G   | AdminCreateVehicle /Game/Vehicles/Z8G/BP_Z8G.BP_Z8G_C
 \`\`\`
 `;
     await channel.send({ content: extraMessage });
-  };
-  
+  }
+
   try {
     const newTicket = new Ticket({
       _id: ticketId,
