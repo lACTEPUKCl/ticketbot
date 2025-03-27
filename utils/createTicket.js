@@ -114,7 +114,16 @@ export async function handleTicketCreation(
 
   for (const [key, value] of Object.entries(formData)) {
     if (!value) continue;
-    embed.addFields({ name: key, value: value.toString(), inline: false });
+    const fieldValue = value.toString();
+    const chunks = fieldValue.match(/.{1,1024}/g) || [];
+
+    chunks.forEach((chunk, index) => {
+      embed.addFields({
+        name: index === 0 ? key : "\u200B",
+        value: chunk,
+        inline: false,
+      });
+    });
   }
 
   const row = new ActionRowBuilder().addComponents(
