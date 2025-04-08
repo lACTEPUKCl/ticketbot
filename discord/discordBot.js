@@ -328,6 +328,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           { closedAt: new Date() },
           { new: true }
         );
+
         if (!ticket) {
           await interaction.reply({
             content: "Тикет не найден",
@@ -335,14 +336,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
           return;
         }
+
         const createdAt = ticket.createdAt
           ? ticket.createdAt.toLocaleString("ru-RU", {
               timeZone: "Europe/Moscow",
             })
           : "Неизвестно";
+
         const closedAt = new Date().toLocaleString("ru-RU", {
           timeZone: "Europe/Moscow",
         });
+
         const embed = new EmbedBuilder()
           .setAuthor({
             name: "Русский Народный Сервер",
@@ -371,8 +375,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
             { name: "Причина", value: reason, inline: true }
           )
           .setFooter({ text: `Закрыто: ${closedAt}` });
+
         try {
-          await interaction.user.send({ embeds: [embed] });
+          if (ticket.discordUserId) {
+            const ticketCreator = await client.users.fetch(
+              ticket.discordUserId
+            );
+            await ticketCreator.send({ embeds: [embed] });
+          }
+
           const closedChannel = interaction.guild.channels.cache.get(
             process.env.CLOSED_TICKETS_CHANNEL_ID
           );
@@ -384,13 +395,13 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } catch (err) {
           console.error("Ошибка отправки уведомлений:", err);
         }
+
         await interaction.reply({ content: "Тикет закрыт.", ephemeral: true });
-        const ticketData = await Ticket.findOne({
-          discordChannelId: interaction.channel.id,
-        });
-        if (ticketData && ticketData.telegramChatId) {
-          forwardToTelegram(ticketData.telegramChatId, "Ваш тикет закрыт.");
+
+        if (ticket.telegramChatId) {
+          forwardToTelegram(ticket.telegramChatId, "Ваш тикет закрыт.");
         }
+
         await interaction.channel?.delete().catch(console.error);
         break;
       }
