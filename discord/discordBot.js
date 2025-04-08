@@ -325,7 +325,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           interaction.fields.getTextInputValue("reason_input") || "Не указана";
         const ticket = await Ticket.findOneAndUpdate(
           { discordChannelId: interaction.channel.id },
-          { closedAt: new Date() },
+          { closedAt: new Date(), closedByAdminId: interaction.user.id },
           { new: true }
         );
 
@@ -586,7 +586,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case "confirm_close_ticket": {
         const ticket = await Ticket.findOneAndUpdate(
           { discordChannelId: interaction.channel.id },
-          { closedAt: new Date() },
+          { closedAt: new Date(), closedByAdminId: interaction.user.id },
           { new: true }
         );
         if (!ticket) {

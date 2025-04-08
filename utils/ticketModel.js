@@ -25,6 +25,7 @@ const ticketSchema = new mongoose.Schema({
   messages: { type: [messageSchema], default: [] },
   createdAt: { type: Date, default: Date.now },
   closedAt: { type: Date },
+  closedByAdminId: { type: String },
 });
 
 ticketSchema.pre("save", async function (next) {
