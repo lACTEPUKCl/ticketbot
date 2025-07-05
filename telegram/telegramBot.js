@@ -213,7 +213,6 @@ tgBot.on("message", async (msg) => {
     const channelId = ticketMap.get(chatIdStr);
     const { client: discordClient } = await import("../discord/discordBot.js");
     const guild = discordClient.guilds.cache.get(GUILD_ID);
-    let telegramId;
     const username = msg.from.username
       ? `@${msg.from.username}`
       : `${msg.from.first_name || ""} ${msg.from.last_name || ""}`.trim();
@@ -221,34 +220,8 @@ tgBot.on("message", async (msg) => {
     if (guild) {
       const channel = guild.channels.cache.get(channelId);
       if (channel) {
-        const textContent = msg.text || "";
-        const attachments = [];
-        if (msg.video) {
-          const videoFileId = msg.video.file_id;
-          if (attachmentCache.has(videoFileId)) {
-            attachments.push(attachmentCache.get(videoFileId));
-          } else {
-            try {
-              const videoPath = await tgBot.downloadFile(
-                videoFileId,
-                "./downloads"
-              );
-              const title = `Видео от ${
-                msg.from.username || msg.from.first_name
-              }`;
-              const description = "Загружено через Telegram-бот";
-              const youtubeUrl = await uploadVideoToVKCommunity(
-                videoPath,
-                title,
-                description
-              );
-              attachments.push(youtubeUrl);
-              attachmentCache.set(videoFileId, youtubeUrl);
-            } catch (err) {
-              console.error("Ошибка загрузки видео на YouTube:", err);
-            }
-          }
-        }
+        let sentFile = false;
+        let textContent = msg.text || "";
 
         if (msg.photo && msg.photo.length) {
           try {
@@ -259,11 +232,6 @@ tgBot.on("message", async (msg) => {
               photoFileId,
               "./downloads"
             );
-            console.log(
-              "Фото скачано:",
-              localDownloadPath,
-              fs.existsSync(localDownloadPath)
-            );
 
             if (fs.existsSync(localDownloadPath)) {
               await channel.send({
@@ -271,11 +239,11 @@ tgBot.on("message", async (msg) => {
                 files: [{ attachment: localDownloadPath, name: fileName }],
               });
               fs.unlinkSync(localDownloadPath);
+              sentFile = true;
             } else {
               await channel.send(
                 `[Bot] Discord (${username}): (фото не удалось прикрепить)`
               );
-              console.error("Файл не найден для отправки:", localDownloadPath);
             }
           } catch (err) {
             await channel.send(
@@ -286,43 +254,65 @@ tgBot.on("message", async (msg) => {
         }
 
         if (msg.document) {
-          const docFileId = msg.document.file_id;
-          const fileName = msg.document.file_name || `doc_${docFileId}.dat`;
-          const localDownloadPath = await tgBot.downloadFile(
-            docFileId,
-            "./downloads"
-          );
-          console.log(
-            "Документ скачан по пути:",
-            localDownloadPath,
-            "Существует?",
-            fs.existsSync(localDownloadPath)
-          );
-
-          if (fs.existsSync(localDownloadPath)) {
-            await channel.send({
-              content: `[Bot] Discord (${username}): Документ`,
-              files: [{ attachment: localDownloadPath, name: fileName }],
-            });
-            fs.unlinkSync(localDownloadPath);
-          } else {
-            await channel.send(
-              `[Bot] Discord (${username}): Не удалось прикрепить документ (файл не найден).`
+          try {
+            const docFileId = msg.document.file_id;
+            const fileName = msg.document.file_name || `doc_${docFileId}.dat`;
+            const localDownloadPath = await tgBot.downloadFile(
+              docFileId,
+              "./downloads"
             );
-            console.error("Файл не найден:", localDownloadPath);
+
+            if (fs.existsSync(localDownloadPath)) {
+              await channel.send({
+                content: `[Bot] Discord (${username}): Документ`,
+                files: [{ attachment: localDownloadPath, name: fileName }],
+              });
+              fs.unlinkSync(localDownloadPath);
+              sentFile = true;
+            } else {
+              await channel.send(
+                `[Bot] Discord (${username}): Не удалось прикрепить документ (файл не найден).`
+              );
+            }
+          } catch (err) {
+            await channel.send(
+              `[Bot] Discord (${username}): Не удалось прикрепить документ (ошибка).`
+            );
+            console.error("Ошибка обработки документа:", err);
           }
         }
 
-        try {
-          if (msg.from.is_bot) return;
-          let finalMessage = textContent;
-          if (attachments.length > 0) {
-            finalMessage += "\n" + attachments.join("\n");
+        if (msg.video) {
+          try {
+            const videoFileId = msg.video.file_id;
+            const fileName = `video_${videoFileId}.mp4`;
+            const localDownloadPath = await tgBot.downloadFile(
+              videoFileId,
+              "./downloads"
+            );
+
+            if (fs.existsSync(localDownloadPath)) {
+              await channel.send({
+                content: `[Bot] Discord (${username}): Видео`,
+                files: [{ attachment: localDownloadPath, name: fileName }],
+              });
+              fs.unlinkSync(localDownloadPath);
+              sentFile = true;
+            } else {
+              await channel.send(
+                `[Bot] Discord (${username}): Не удалось прикрепить видео (файл не найден).`
+              );
+            }
+          } catch (err) {
+            await channel.send(
+              `[Bot] Discord (${username}): Не удалось прикрепить видео (ошибка).`
+            );
+            console.error("Ошибка обработки видео:", err);
           }
-          telegramId = msg.from.id;
-          await channel.send(`[Bot] Discord (${username}): ${finalMessage}`);
-        } catch (err) {
-          console.error("Ошибка отправки сообщения в Discord:", err);
+        }
+
+        if (!sentFile && textContent.trim()) {
+          await channel.send(`[Bot] Discord (${username}): ${textContent}`);
         }
 
         await Ticket.findOneAndUpdate(
@@ -331,7 +321,7 @@ tgBot.on("message", async (msg) => {
             $push: {
               messages: {
                 sender: username,
-                telegramId: telegramId,
+                telegramId: msg.from.id,
                 content: textContent,
               },
             },
