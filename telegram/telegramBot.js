@@ -250,52 +250,67 @@ tgBot.on("message", async (msg) => {
           }
         }
 
-        if (msg.document) {
-          const docFileId = msg.document.file_id;
-          const localDownloadPath = await tgBot.downloadFile(
-            docFileId,
-            "./downloads"
-          );
-          const fileName = msg.document.file_name || `doc_${docFileId}`;
-          const vkDocUrl = await uploadDocumentToVK(
-            localDownloadPath,
-            fileName
-          );
-          attachments.push(vkDocUrl);
-          attachmentCache.set(docFileId, vkDocUrl);
+        if (msg.photo && msg.photo.length) {
+          try {
+            const photo = msg.photo[msg.photo.length - 1];
+            const photoFileId = photo.file_id;
+            const fileName = `photo_${photoFileId}.jpg`;
+            const localDownloadPath = await tgBot.downloadFile(
+              photoFileId,
+              "./downloads"
+            );
+            console.log(
+              "Фото скачано:",
+              localDownloadPath,
+              fs.existsSync(localDownloadPath)
+            );
 
-          await channel.send({
-            content: `[Bot] Discord (${username}): ${
-              textContent || "Документ"
-            }`,
-            files: [{ attachment: localDownloadPath, name: fileName }],
-          });
-
-          fs.unlinkSync(localDownloadPath);
+            if (fs.existsSync(localDownloadPath)) {
+              await channel.send({
+                content: `[Bot] Discord (${username}):`,
+                files: [{ attachment: localDownloadPath, name: fileName }],
+              });
+              fs.unlinkSync(localDownloadPath);
+            } else {
+              await channel.send(
+                `[Bot] Discord (${username}): (фото не удалось прикрепить)`
+              );
+              console.error("Файл не найден для отправки:", localDownloadPath);
+            }
+          } catch (err) {
+            await channel.send(
+              `[Bot] Discord (${username}): (фото не удалось прикрепить)`
+            );
+            console.error("Ошибка обработки фото:", err);
+          }
         }
 
         if (msg.document) {
           const docFileId = msg.document.file_id;
+          const fileName = msg.document.file_name || `doc_${docFileId}.dat`;
           const localDownloadPath = await tgBot.downloadFile(
             docFileId,
             "./downloads"
           );
-          const fileName = msg.document.file_name || `doc_${docFileId}`;
-          const vkDocUrl = await uploadDocumentToVK(
+          console.log(
+            "Документ скачан по пути:",
             localDownloadPath,
-            fileName
+            "Существует?",
+            fs.existsSync(localDownloadPath)
           );
-          attachments.push(vkDocUrl);
-          attachmentCache.set(docFileId, vkDocUrl);
 
-          await channel.send({
-            content: `[Bot] Discord (${username}): ${
-              textContent || "Документ"
-            }`,
-            files: [{ attachment: localDownloadPath, name: fileName }],
-          });
-
-          fs.unlinkSync(localDownloadPath);
+          if (fs.existsSync(localDownloadPath)) {
+            await channel.send({
+              content: `[Bot] Discord (${username}): Документ`,
+              files: [{ attachment: localDownloadPath, name: fileName }],
+            });
+            fs.unlinkSync(localDownloadPath);
+          } else {
+            await channel.send(
+              `[Bot] Discord (${username}): Не удалось прикрепить документ (файл не найден).`
+            );
+            console.error("Файл не найден:", localDownloadPath);
+          }
         }
 
         try {
