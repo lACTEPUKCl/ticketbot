@@ -12,7 +12,7 @@ config();
 const data = new SlashCommandBuilder()
   .setName("close")
   .setDescription("Закрывает тикет")
-  .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  .setDefaultMemberPermissions(PermissionFlagsBits.MuteMembers)
   .addStringOption((option) =>
     option
       .setName("reason")
