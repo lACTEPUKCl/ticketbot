@@ -10,12 +10,12 @@ import {
   ButtonBuilder,
   ButtonStyle,
   EmbedBuilder,
-  AttachmentBuilder,
 } from "discord.js";
 import getCommands from "../commands/getCommands.js";
 import { handleTicketCreation } from "../utils/createTicket.js";
-import { forwardToTelegram, tgBot } from "../telegram/telegramBot.js";
+import { forwardToTelegram } from "../telegram/telegramBot.js";
 import Ticket from "../utils/ticketModel.js";
+import { tgBot } from "../telegram/telegramBot.js";
 import { createBattleMetricsClient } from "../utils/battleMetricsClient.js";
 import getSteamId64 from "../utils/getSteamID64.js";
 import {
@@ -27,12 +27,7 @@ import { config } from "dotenv";
 import axios from "axios";
 import fs from "fs";
 import path from "path";
-import { randomUUID } from "crypto";
 config();
-
-const downloadsDir = path.join(process.cwd(), "downloads");
-if (!fs.existsSync(downloadsDir))
-  fs.mkdirSync(downloadsDir, { recursive: true });
 
 async function downloadFileFromURL(fileUrl, destPath) {
   const response = await axios({
@@ -48,53 +43,6 @@ async function downloadFileFromURL(fileUrl, destPath) {
   });
 }
 
-async function handleAttachment(attachment, username, tgChatId, channel) {
-  const fileExtension = path.extname(attachment.name || "") || ".dat";
-  const fileName = `${randomUUID()}${fileExtension}`;
-  const destPath = path.join(downloadsDir, fileName);
-  let vkUrl = null;
-
-  try {
-    await downloadFileFromURL(attachment.url, destPath);
-    await channel.send({
-      files: [{ attachment: destPath, name: fileName }],
-    });
-
-    if (attachment.contentType.startsWith("image/")) {
-      vkUrl = await uploadPhotoToVK(destPath);
-    } else if (attachment.contentType.startsWith("video/")) {
-      vkUrl = await uploadVideoToVKCommunity(
-        destPath,
-        `Видео от ${username}`,
-        "Загружено через бота"
-      );
-    } else {
-      vkUrl = await uploadDocumentToVK(destPath, fileName);
-    }
-
-    if (tgChatId) {
-      try {
-        if (attachment.contentType.startsWith("image/")) {
-          await tgBot.sendPhoto(tgChatId, { source: destPath });
-        } else if (attachment.contentType.startsWith("video/")) {
-          await tgBot.sendVideo(tgChatId, { source: destPath });
-        } else {
-          await tgBot.sendDocument(tgChatId, { source: destPath });
-        }
-      } catch (err) {
-        console.error("Ошибка отправки в Telegram:", err);
-      }
-    }
-  } catch (err) {
-    console.error("Ошибка работы с вложением:", err);
-  } finally {
-    try {
-      await fs.promises.unlink(destPath);
-    } catch (e) {}
-  }
-  return vkUrl;
-}
-
 async function loadAdminsMapping(filePath) {
   const content = fs.readFileSync(path.resolve(filePath), "utf8");
   const lines = content.split("\n");
@@ -104,7 +52,11 @@ async function loadAdminsMapping(filePath) {
   for (const line of lines) {
     const trimmed = line.trim();
     const match = trimmed.match(regex);
-    if (match) mapping[match[1]] = match[2];
+    if (match) {
+      const steamId = match[1];
+      const discordId = match[2];
+      mapping[steamId] = discordId;
+    }
   }
   return mapping;
 }
@@ -113,9 +65,10 @@ const battleMetricsClient = new createBattleMetricsClient({
   access_token: process.env.BATTLEMETRICS_API_TOKEN,
   org_id: process.env.BATTLEMETRICS_ORG_ID,
 });
+
 const adminsMapping = await loadAdminsMapping("./admins.cfg");
 const steamApi = process.env.STEAM_API_KEY;
-const modRoleIds = process.env.MOD_ROLE_IDS.split(",").map((id) => id.trim());
+const attachmentCache = new Map();
 
 const client = new Client({
   intents: [
@@ -126,36 +79,42 @@ const client = new Client({
 });
 client.commands = new Collection();
 const commands = await getCommands();
+
 for (const command of commands) {
-  if (command.data && command.execute)
+  if ("data" in command && "execute" in command)
     client.commands.set(command.data.name, command);
   else console.log("The command missing! in index.js");
 }
-const userTicketChannels = new Map();
 
-client.on(Events.Ready, () => {
+const userTicketChannels = new Map();
+const modRoleIds = process.env.MOD_ROLE_IDS.split(",").map((id) => id.trim());
+
+client.on(Events.Ready, async () => {
   console.log(`Logged in as ${client.user.tag}!`);
 });
 
 client.on("messageCreate", async (message) => {
   if (message.author.bot) return;
+
   const discordId = message.author.id;
   const username = message.author.tag;
+
   const ticket = await Ticket.findOne({ discordChannelId: message.channel.id });
   if (!ticket) return;
-  const tgChatId = ticket.telegramChatId;
 
-  const attachmentsForDB = [];
+  const tgChatId = ticket.telegramChatId;
+  const attachments = [];
 
   if (message.attachments.size > 0) {
     for (const attachment of message.attachments.values()) {
       try {
-        const fileExtension = path.extname(attachment.name || "") || ".dat";
-        const fileName = `${randomUUID()}${fileExtension}`;
-        const destPath = path.join(downloadsDir, fileName);
+        let vkUrl = null;
+        const fileExtension = path.extname(attachment.name || "").toLowerCase();
+        const fileName = attachment.name || `${attachment.id}${fileExtension}`;
+        const destPath = path.join("./downloads", fileName);
+
         await downloadFileFromURL(attachment.url, destPath);
 
-        let vkUrl = null;
         if (attachment.contentType.startsWith("image/")) {
           vkUrl = await uploadPhotoToVK(destPath);
         } else if (attachment.contentType.startsWith("video/")) {
@@ -167,43 +126,36 @@ client.on("messageCreate", async (message) => {
         } else {
           vkUrl = await uploadDocumentToVK(destPath, fileName);
         }
-        if (vkUrl) attachmentsForDB.push(vkUrl);
 
-        if (tgChatId) {
-          try {
-            if (attachment.contentType.startsWith("image/")) {
-              await tgBot.sendPhoto(tgChatId, { source: destPath });
-            } else if (attachment.contentType.startsWith("video/")) {
-              await tgBot.sendVideo(tgChatId, { source: destPath });
-            } else {
-              await tgBot.sendDocument(tgChatId, { source: destPath });
-            }
-          } catch (err) {
-            console.error("Ошибка отправки в Telegram:", err);
-          }
-        }
-
-        await message.channel.send({
-          files: [{ attachment: destPath, name: fileName }],
-        });
-
-        try {
-          await fs.promises.unlink(destPath);
-        } catch (e) {}
+        if (vkUrl) attachments.push(vkUrl);
       } catch (err) {
-        console.error("Ошибка обработки вложения:", err);
+        console.error("Ошибка загрузки вложения в VK:", err);
       }
     }
   }
 
-  if (tgChatId && message.content.trim() && message.attachments.size === 0) {
-    try {
-      await tgBot.sendMessage(
-        tgChatId,
-        `Discord (${username}): ${message.content}`
-      );
-    } catch (err) {
-      console.error("Ошибка отправки текста в Telegram:", err);
+  if (tgChatId) {
+    let caption = `Discord (${username}):`;
+    if (message.content.trim().length > 0) {
+      caption += ` ${message.content}`;
+    }
+
+    if (message.attachments.size > 0) {
+      for (const attachment of message.attachments.values()) {
+        try {
+          if (attachment.contentType.startsWith("image/")) {
+            await tgBot.sendPhoto(tgChatId, attachment.url, {});
+          } else if (attachment.contentType.startsWith("video/")) {
+            await tgBot.sendVideo(tgChatId, attachment.url, {});
+          } else {
+            await tgBot.sendDocument(tgChatId, attachment.url, {});
+          }
+        } catch (err) {
+          console.error("Ошибка отправки вложения в Telegram:", err);
+        }
+      }
+    } else {
+      await tgBot.sendMessage(tgChatId, caption);
     }
   }
 
@@ -214,9 +166,9 @@ client.on("messageCreate", async (message) => {
         $push: {
           messages: {
             sender: username,
-            discordId,
+            discordId: discordId,
             content: message.content,
-            attachments: attachmentsForDB,
+            attachments: attachments,
           },
         },
       },
