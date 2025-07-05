@@ -150,15 +150,48 @@ client.on("messageCreate", async (message) => {
   if (message.attachments.size > 0) {
     for (const attachment of message.attachments.values()) {
       try {
-        const vkUrl = await handleAttachment(
-          attachment,
-          username,
-          tgChatId,
-          message.channel
-        );
+        const fileExtension = path.extname(attachment.name || "") || ".dat";
+        const fileName = `${randomUUID()}${fileExtension}`;
+        const destPath = path.join(downloadsDir, fileName);
+        await downloadFileFromURL(attachment.url, destPath);
+
+        let vkUrl = null;
+        if (attachment.contentType.startsWith("image/")) {
+          vkUrl = await uploadPhotoToVK(destPath);
+        } else if (attachment.contentType.startsWith("video/")) {
+          vkUrl = await uploadVideoToVKCommunity(
+            destPath,
+            `Видео от ${username}`,
+            "Загружено через бота"
+          );
+        } else {
+          vkUrl = await uploadDocumentToVK(destPath, fileName);
+        }
         if (vkUrl) attachmentsForDB.push(vkUrl);
+
+        if (tgChatId) {
+          try {
+            if (attachment.contentType.startsWith("image/")) {
+              await tgBot.sendPhoto(tgChatId, { source: destPath });
+            } else if (attachment.contentType.startsWith("video/")) {
+              await tgBot.sendVideo(tgChatId, { source: destPath });
+            } else {
+              await tgBot.sendDocument(tgChatId, { source: destPath });
+            }
+          } catch (err) {
+            console.error("Ошибка отправки в Telegram:", err);
+          }
+        }
+
+        await message.channel.send({
+          files: [{ attachment: destPath, name: fileName }],
+        });
+
+        try {
+          await fs.promises.unlink(destPath);
+        } catch (e) {}
       } catch (err) {
-        console.error("Ошибка в handleAttachment:", err);
+        console.error("Ошибка обработки вложения:", err);
       }
     }
   }
