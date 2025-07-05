@@ -250,48 +250,52 @@ tgBot.on("message", async (msg) => {
           }
         }
 
-        if (msg.photo && msg.photo.length) {
-          const photoFileId = msg.photo[msg.photo.length - 1].file_id;
-          if (attachmentCache.has(photoFileId)) {
-            attachments.push(attachmentCache.get(photoFileId));
-          } else {
-            try {
-              const localDownloadPath = await tgBot.downloadFile(
-                photoFileId,
-                "./downloads"
-              );
-              const vkPhotoUrl = await uploadPhotoToVK(localDownloadPath);
-              attachments.push(vkPhotoUrl);
-              attachmentCache.set(photoFileId, vkPhotoUrl);
-              fs.unlinkSync(localDownloadPath);
-            } catch (err) {
-              console.error("Ошибка загрузки фото в VK:", err);
-            }
-          }
+        if (msg.document) {
+          const docFileId = msg.document.file_id;
+          const localDownloadPath = await tgBot.downloadFile(
+            docFileId,
+            "./downloads"
+          );
+          const fileName = msg.document.file_name || `doc_${docFileId}`;
+          const vkDocUrl = await uploadDocumentToVK(
+            localDownloadPath,
+            fileName
+          );
+          attachments.push(vkDocUrl);
+          attachmentCache.set(docFileId, vkDocUrl);
+
+          await channel.send({
+            content: `[Bot] Discord (${username}): ${
+              textContent || "Документ"
+            }`,
+            files: [{ attachment: localDownloadPath, name: fileName }],
+          });
+
+          fs.unlinkSync(localDownloadPath);
         }
 
         if (msg.document) {
           const docFileId = msg.document.file_id;
-          if (attachmentCache.has(docFileId)) {
-            attachments.push(attachmentCache.get(docFileId));
-          } else {
-            try {
-              const localDownloadPath = await tgBot.downloadFile(
-                docFileId,
-                "./downloads"
-              );
-              const fileName = msg.document.file_name || `doc_${docFileId}`;
-              const vkDocUrl = await uploadDocumentToVK(
-                localDownloadPath,
-                fileName
-              );
-              attachments.push(vkDocUrl);
-              attachmentCache.set(docFileId, vkDocUrl);
-              fs.unlinkSync(localDownloadPath);
-            } catch (err) {
-              console.error("Ошибка загрузки документа в VK:", err);
-            }
-          }
+          const localDownloadPath = await tgBot.downloadFile(
+            docFileId,
+            "./downloads"
+          );
+          const fileName = msg.document.file_name || `doc_${docFileId}`;
+          const vkDocUrl = await uploadDocumentToVK(
+            localDownloadPath,
+            fileName
+          );
+          attachments.push(vkDocUrl);
+          attachmentCache.set(docFileId, vkDocUrl);
+
+          await channel.send({
+            content: `[Bot] Discord (${username}): ${
+              textContent || "Документ"
+            }`,
+            files: [{ attachment: localDownloadPath, name: fileName }],
+          });
+
+          fs.unlinkSync(localDownloadPath);
         }
 
         try {
