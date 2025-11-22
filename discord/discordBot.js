@@ -182,26 +182,45 @@ client.on("messageCreate", async (message) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isChatInputCommand()) {
     const command = interaction.client.commands.get(interaction.commandName);
+    if (!command) return;
+
     try {
       await command.execute(interaction);
     } catch (error) {
-      console.error(error);
-      if (interaction.replied || interaction.deferred) {
-        await interaction.followUp({
-          content: "There was an error while executing this command!",
-          ephemeral: true,
-        });
-      } else {
-        await interaction.reply({
-          content: "There was an error while executing this command!",
-          ephemeral: true,
-        });
+      console.error(
+        `Ошибка при выполнении команды /${interaction.commandName}:`,
+        error
+      );
+
+      const errorPayload = {
+        content: "Произошла ошибка при выполнении этой команды.",
+        flags: 64,
+      };
+
+      try {
+        if (interaction.deferred || interaction.replied) {
+          await interaction.followUp(errorPayload);
+        } else {
+          await interaction.reply(errorPayload);
+        }
+      } catch (err) {
+        if (err.code === 10062) {
+          console.warn(
+            "Interaction уже истёк (Unknown interaction 10062), пропускаем отправку сообщения об ошибке."
+          );
+        } else {
+          console.error(
+            "Не удалось отправить сообщение об ошибке пользователю:",
+            err
+          );
+        }
       }
     }
   }
 
   if (interaction.isModalSubmit()) {
     const categoryId = interaction.channel?.parentId;
+
     switch (interaction.customId) {
       case "report_ticket_modal": {
         const nickname = interaction.fields.getTextInputValue("nickname");
@@ -217,6 +236,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           "На каком сервере произошло нарушение": server,
           "Подробно опишите, что произошло": details,
         };
+
         await handleTicketCreation(
           interaction,
           "Жалоба",
@@ -226,6 +246,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
         break;
       }
+
       case "unban_ticket_modal": {
         const nickname = interaction.fields.getTextInputValue("nickname");
         const steam = interaction.fields.getTextInputValue("steam");
@@ -287,6 +308,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
           "Ваш игровой никнейм": nickname,
           "Ваш SteamID64 или ссылка на профиль Steam": steam,
         };
+
         await handleTicketCreation(
           interaction,
           "Вернуть пилота",
@@ -296,6 +318,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
         break;
       }
+
       case "admin_modal": {
         const nickname = interaction.fields.getTextInputValue("nickname");
         const steam = interaction.fields.getTextInputValue("steam");
@@ -320,9 +343,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
         break;
       }
+
       case "modal_close_with_reason": {
         const reason =
           interaction.fields.getTextInputValue("reason_input") || "Не указана";
+
         const ticket = await Ticket.findOneAndUpdate(
           { discordChannelId: interaction.channel.id },
           { closedAt: new Date(), closedByAdminId: interaction.user.id },
@@ -451,9 +476,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 .setRequired(true)
             )
           );
+
         await interaction.showModal(modal);
         break;
       }
+
       case "unban_ticket": {
         const modal = new ModalBuilder()
           .setCustomId("unban_ticket_modal")
@@ -481,9 +508,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 .setRequired(true)
             )
           );
+
         await interaction.showModal(modal);
         break;
       }
+
       case "return_pilot_ticket": {
         const modal = new ModalBuilder()
           .setCustomId("return_pilot_ticket_modal")
@@ -504,9 +533,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 .setRequired(true)
             )
           );
+
         await interaction.showModal(modal);
         break;
       }
+
       case "ask_question_ticket": {
         await handleTicketCreation(
           interaction,
@@ -516,6 +547,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         );
         break;
       }
+
       case "admin_ticket": {
         const modal = new ModalBuilder()
           .setCustomId("admin_modal")
@@ -557,12 +589,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
                 .setRequired(true)
             )
           );
+
         await interaction.showModal(modal);
         break;
       }
+
       case "close_ticket": {
         const memberRoles = interaction.member.roles.cache;
         const isMod = memberRoles.some((role) => modRoleIds.includes(role.id));
+
         if (!isMod) {
           await interaction.reply({
             content: "Закрыть тикет может только модератор",
@@ -570,12 +605,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
           return;
         }
+
         const confirmRow = new ActionRowBuilder().addComponents(
           new ButtonBuilder()
             .setCustomId("confirm_close_ticket")
             .setLabel("Да, закрыть")
             .setStyle(ButtonStyle.Danger)
         );
+
         await interaction.reply({
           content: "Вы уверены, что хотите закрыть тикет?",
           components: [confirmRow],
@@ -583,12 +620,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         });
         break;
       }
+
       case "confirm_close_ticket": {
         const ticket = await Ticket.findOneAndUpdate(
           { discordChannelId: interaction.channel.id },
           { closedAt: new Date(), closedByAdminId: interaction.user.id },
           { new: true }
         );
+
         if (!ticket) {
           await interaction.reply({
             content: "Тикет не найден",
@@ -596,14 +635,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
           return;
         }
+
         const createdAt = ticket.createdAt
           ? ticket.createdAt.toLocaleString("ru-RU", {
               timeZone: "Europe/Moscow",
             })
           : "Неизвестно";
+
         const closedAt = new Date().toLocaleString("ru-RU", {
           timeZone: "Europe/Moscow",
         });
+
         const embed = new EmbedBuilder()
           .setAuthor({
             name: "Русский Народный Сервер",
@@ -632,6 +674,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             { name: "Причина", value: "Не указана", inline: true }
           )
           .setFooter({ text: `Закрыто: ${closedAt}` });
+
         try {
           if (ticket.discordUserId) {
             const ticketCreator = await client.users.fetch(
@@ -639,6 +682,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
             );
             await ticketCreator.send({ embeds: [embed] });
           }
+
           const closedChannel = interaction.guild.channels.cache.get(
             process.env.CLOSED_TICKETS_CHANNEL_ID
           );
@@ -650,13 +694,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
         } catch (err) {
           console.error("Ошибка отправки уведомлений:", err);
         }
+
         await interaction.reply({ content: "Тикет закрыт.", ephemeral: true });
+
         const ticketData = await Ticket.findOne({
           discordChannelId: interaction.channel.id,
         });
+
         if (ticketData && ticketData.telegramChatId) {
           forwardToTelegram(ticketData.telegramChatId, "Ваш тикет закрыт.");
         }
+
         await interaction.channel?.delete().catch(console.error);
         break;
       }
@@ -664,6 +712,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case "close_ticket_with_reason": {
         const memberRoles = interaction.member.roles.cache;
         const isMod = memberRoles.some((role) => modRoleIds.includes(role.id));
+
         if (!isMod) {
           await interaction.reply({
             content: "Закрыть тикет может только модератор",
@@ -671,16 +720,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
           });
           return;
         }
+
         const modal = new ModalBuilder()
           .setCustomId("modal_close_with_reason")
           .setTitle("Закрытие тикета с причиной");
+
         const reasonInput = new TextInputBuilder()
           .setCustomId("reason_input")
           .setLabel("Введите причину закрытия тикета")
           .setStyle(TextInputStyle.Paragraph)
           .setRequired(true);
+
         const row = new ActionRowBuilder().addComponents(reasonInput);
         modal.addComponents(row);
+
         await interaction.showModal(modal);
         break;
       }
