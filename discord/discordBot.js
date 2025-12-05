@@ -27,7 +27,21 @@ import { config } from "dotenv";
 import axios from "axios";
 import fs from "fs";
 import path from "path";
+import { HttpsProxyAgent } from "https-proxy-agent";
+import { ProxyAgent, setGlobalDispatcher } from "undici";
 config();
+
+const proxyUrl = process.env.DISCORD_PROXY_URL;
+let wsProxyAgent = null;
+
+if (proxyUrl) {
+  console.log("[BOT] Using Discord proxy:", proxyUrl);
+
+  const restProxy = new ProxyAgent(proxyUrl);
+  setGlobalDispatcher(restProxy);
+
+  wsProxyAgent = new HttpsProxyAgent(proxyUrl);
+}
 
 async function downloadFileFromURL(fileUrl, destPath) {
   const response = await axios({
@@ -76,6 +90,7 @@ const client = new Client({
     GatewayIntentBits.MessageContent,
     GatewayIntentBits.Guilds,
   ],
+  ...(wsProxyAgent ? { ws: { agent: wsProxyAgent } } : {}),
 });
 client.commands = new Collection();
 const commands = await getCommands();
